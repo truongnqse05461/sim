@@ -46,7 +46,7 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    "../next-env.d.ts",
+    "next-env.d.ts",
     "telemetry.config.js",
     "trigger.config.ts"
   ],
