@@ -13,6 +13,7 @@
     "dev": "turbo run dev",
     "dev:sockets": "cd apps/sim && bun run dev:sockets",
     "dev:full": "cd apps/sim && bun run dev:full",
+    "dev:full:classic": "cd apps/sim && concurrently -n \"App,Realtime\" -c \"cyan,magenta\" \"bun run dev:classic\" \"bun run dev:sockets\"",
     "test": "turbo run test",
     "format": "bunx biome format --write .",
     "format:check": "bunx biome format .",

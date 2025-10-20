@@ -79,6 +79,8 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizeCss: true,
     turbopackSourceMaps: false,
+    // Allow importing from outside the app dir in monorepo (Windows Turbopack path fix)
+    externalDir: true,
   },
   ...(isDev && {
     allowedDevOrigins: [

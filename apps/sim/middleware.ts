@@ -155,15 +155,22 @@ export async function middleware(request: NextRequest) {
     // Basic path family enforcement using workspace/workflow claims
     const pathname = url.pathname
     const isWorkflowApi = pathname.startsWith('/api/workflows/')
+    const isWorkflowApiV2 = pathname.startsWith('/api/v2/workflows/')
     const isKbFilesTemplatesToolsApi =
       pathname.startsWith('/api/knowledge') ||
       pathname.startsWith('/api/files') ||
       pathname.startsWith('/api/templates') ||
       pathname.startsWith('/api/tools')
+    const isKbFilesTemplatesToolsApiV2 =
+      pathname.startsWith('/api/v2/knowledge') ||
+      pathname.startsWith('/api/v2/files') ||
+      pathname.startsWith('/api/v2/templates') ||
+      pathname.startsWith('/api/v2/tools')
 
-    if (isWorkflowApi) {
+    if (isWorkflowApi || isWorkflowApiV2) {
       const parts = pathname.split('/')
-      const id = parts[3] // /api/workflows/{id}
+      // /api/workflows/{id} => index 3, /api/v2/workflows/{id} => index 4
+      const id = isWorkflowApiV2 ? parts[4] : parts[3]
       if (claims.workflowId && claims.workflowId !== id) {
         return new NextResponse(JSON.stringify({ error: 'Forbidden' }), {
           status: 403,
@@ -173,7 +180,7 @@ export async function middleware(request: NextRequest) {
       // If no workflowId in claims, allow; deeper validation can be done in handlers
     }
 
-    if (isKbFilesTemplatesToolsApi) {
+    if (isKbFilesTemplatesToolsApi || isKbFilesTemplatesToolsApiV2) {
       // For now, allow and rely on handler-level checks to map resource → workspace
       // Future: derive workspace from URL or lightweight DB read here and compare with claims.workspaceId
     }

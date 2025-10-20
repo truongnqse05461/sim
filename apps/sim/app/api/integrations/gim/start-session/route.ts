@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     }
     return new NextResponse(null, { status: 204 })
   } catch (error: any) {
-    logger.error('start-session error', { error: error?.message })
+    logger.error('start-session error', { error: error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
