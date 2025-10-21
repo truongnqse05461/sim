@@ -8,20 +8,19 @@ import { nextCookies } from 'better-auth/next-js'
 import {
   createAuthMiddleware,
   customSession,
-  emailOTP,
   genericOAuth,
   oneTimeToken,
   organization,
 } from 'better-auth/plugins'
 import { and, eq } from 'drizzle-orm'
-import { headers } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import Stripe from 'stripe'
 import {
   getEmailSubject,
   renderInvitationEmail,
-  renderOTPEmail,
   renderPasswordResetEmail,
 } from '@/components/emails/render-email'
+import { embedCookie, verifyEmbedToken } from '@/lib/auth/embed'
 import { sendPlanWelcomeEmail } from '@/lib/billing'
 import { authorizeSubscriptionReference } from '@/lib/billing/authorization'
 import { handleNewUser } from '@/lib/billing/core/usage'
@@ -39,7 +38,6 @@ import {
 } from '@/lib/billing/webhooks/subscription'
 import { sendEmail } from '@/lib/email/mailer'
 import { getFromEmailAddress } from '@/lib/email/utils'
-import { quickValidateEmail } from '@/lib/email/validation'
 import { env, isTruthy } from '@/lib/env'
 import { isBillingEnabled, isEmailVerificationEnabled } from '@/lib/environment'
 import { createLogger } from '@/lib/logs/console/logger'
@@ -199,15 +197,25 @@ export const auth = betterAuth({
   },
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
-      if (ctx.path.startsWith('/sign-up') && isTruthy(env.DISABLE_REGISTRATION))
+      if (ctx.path.startsWith('/forget-password'))
+        throw new Error('Password reset is disabled, please contact your admin.')
+
+      if (ctx.path.startsWith('/change-password'))
+        throw new Error('Password change is disabled, please contact your admin.')
+
+      const requestEmail = ctx.body?.email?.toLowerCase()
+
+      if (
+        ctx.path.startsWith('/sign-up') &&
+        isTruthy(env.DISABLE_REGISTRATION) &&
+        requestEmail !== env.SUPER_ADMIN_EMAIL
+      )
         throw new Error('Registration is disabled, please contact your admin.')
 
       if (
         (ctx.path.startsWith('/sign-in') || ctx.path.startsWith('/sign-up')) &&
         (env.ALLOWED_LOGIN_EMAILS || env.ALLOWED_LOGIN_DOMAINS)
       ) {
-        const requestEmail = ctx.body?.email?.toLowerCase()
-
         if (requestEmail) {
           let isAllowed = false
 
@@ -244,69 +252,69 @@ export const auth = betterAuth({
       user,
       session,
     })),
-    emailOTP({
-      sendVerificationOTP: async (data: {
-        email: string
-        otp: string
-        type: 'sign-in' | 'email-verification' | 'forget-password'
-      }) => {
-        if (!isEmailVerificationEnabled) {
-          logger.info('Skipping email verification')
-          return
-        }
-        try {
-          if (!data.email) {
-            throw new Error('Email is required')
-          }
+    // emailOTP({
+    //   sendVerificationOTP: async (data: {
+    //     email: string
+    //     otp: string
+    //     type: 'sign-in' | 'email-verification' | 'forget-password'
+    //   }) => {
+    //     if (!isEmailVerificationEnabled) {
+    //       logger.info('Skipping email verification')
+    //       return
+    //     }
+    //     try {
+    //       if (!data.email) {
+    //         throw new Error('Email is required')
+    //       }
 
-          const validation = quickValidateEmail(data.email)
-          if (!validation.isValid) {
-            logger.warn('Email validation failed', {
-              email: data.email,
-              reason: validation.reason,
-              checks: validation.checks,
-            })
-            throw new Error(
-              validation.reason ||
-                "We are unable to deliver the verification email to that address. Please make sure it's valid and able to receive emails."
-            )
-          }
+    //       const validation = quickValidateEmail(data.email)
+    //       if (!validation.isValid) {
+    //         logger.warn('Email validation failed', {
+    //           email: data.email,
+    //           reason: validation.reason,
+    //           checks: validation.checks,
+    //         })
+    //         throw new Error(
+    //           validation.reason ||
+    //             "We are unable to deliver the verification email to that address. Please make sure it's valid and able to receive emails."
+    //         )
+    //       }
 
-          const html = await renderOTPEmail(data.otp, data.email, data.type)
+    //       const html = await renderOTPEmail(data.otp, data.email, data.type)
 
-          const result = await sendEmail({
-            to: data.email,
-            subject: getEmailSubject(data.type),
-            html,
-            from: getFromEmailAddress(),
-            emailType: 'transactional',
-          })
+    //       const result = await sendEmail({
+    //         to: data.email,
+    //         subject: getEmailSubject(data.type),
+    //         html,
+    //         from: getFromEmailAddress(),
+    //         emailType: 'transactional',
+    //       })
 
-          if (!result.success && result.message.includes('no email service configured')) {
-            logger.info('🔑 VERIFICATION CODE FOR LOGIN/SIGNUP', {
-              email: data.email,
-              otp: data.otp,
-              type: data.type,
-              validation: validation.checks,
-            })
-            return
-          }
+    //       if (!result.success && result.message.includes('no email service configured')) {
+    //         logger.info('🔑 VERIFICATION CODE FOR LOGIN/SIGNUP', {
+    //           email: data.email,
+    //           otp: data.otp,
+    //           type: data.type,
+    //           validation: validation.checks,
+    //         })
+    //         return
+    //       }
 
-          if (!result.success) {
-            throw new Error(`Failed to send verification code: ${result.message}`)
-          }
-        } catch (error) {
-          logger.error('Error sending verification code:', {
-            error,
-            email: data.email,
-          })
-          throw error
-        }
-      },
-      sendVerificationOnSignUp: false,
-      otpLength: 6, // Explicitly set the OTP length
-      expiresIn: 15 * 60, // 15 minutes in seconds
-    }),
+    //       if (!result.success) {
+    //         throw new Error(`Failed to send verification code: ${result.message}`)
+    //       }
+    //     } catch (error) {
+    //       logger.error('Error sending verification code:', {
+    //         error,
+    //         email: data.email,
+    //       })
+    //       throw error
+    //     }
+    //   },
+    //   sendVerificationOnSignUp: false,
+    //   otpLength: 6, // Explicitly set the OTP length
+    //   expiresIn: 15 * 60, // 15 minutes in seconds
+    // }),
     genericOAuth({
       config: [
         {
@@ -1460,9 +1468,26 @@ export const auth = betterAuth({
 
 export async function getSession() {
   const hdrs = await headers()
-  return await auth.api.getSession({
-    headers: hdrs,
-  })
+  const session = await auth.api.getSession({ headers: hdrs })
+
+  const jar = await cookies()
+  const token = jar.get(embedCookie.name)?.value
+  if (!token) {
+    const err: any = new Error('Embed session invalid')
+    err.status = 401
+    throw err
+  }
+  if (token) {
+    const claims = await verifyEmbedToken(token)
+    if (!claims) {
+      const err: any = new Error('Embed session invalid')
+      err.status = 401
+      throw err
+    }
+    return { ...session, embed: claims }
+  }
+
+  return session
 }
 
 export const signIn = auth.api.signInEmail

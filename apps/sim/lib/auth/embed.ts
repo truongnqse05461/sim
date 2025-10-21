@@ -2,7 +2,7 @@ import type { JWTPayload } from 'jose'
 import { jwtVerify, SignJWT } from 'jose'
 import { env } from '@/lib/env'
 
-const EMBED_COOKIE_NAME = 'sim_embed'
+const EMBED_COOKIE_NAME = 'sim-embed'
 
 export interface EmbedClaims {
   type: 'embed'
