@@ -7,6 +7,8 @@ import { getSession } from '@/lib/auth'
 import { createLogger } from '@/lib/logs/console/logger'
 import { getUserEntityPermissions } from '@/lib/permissions/utils'
 import { generateRequestId } from '@/lib/utils'
+import { headers } from 'next/headers'
+import { authenticateApiKeyFromHeader } from '@/lib/api-key/service'
 
 const logger = createLogger('WorkspaceApiKeyAPI')
 
@@ -22,13 +24,20 @@ export async function PUT(
   const { id: workspaceId, keyId } = await params
 
   try {
-    const session = await getSession()
-    if (!session?.user?.id) {
-      logger.warn(`[${requestId}] Unauthorized workspace API key update attempt`)
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const hdrs = await headers()
+    const apiKeyHeader = hdrs.get('x-api-key') || hdrs.get('X-API-Key')
+    if (!apiKeyHeader) {
+      return NextResponse.json({ error: 'API key required' }, { status: 401 })
+    }
+    
+    const auth = await authenticateApiKeyFromHeader(apiKeyHeader, {
+      keyTypes: ['personal'],
+    })
+    if (!auth.success || !auth.userId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const userId = session.user.id
+    const userId = auth.userId
 
     const permission = await getUserEntityPermissions(userId, 'workspace', workspaceId)
     if (!permission || (permission !== 'admin' && permission !== 'write')) {
@@ -105,13 +114,20 @@ export async function DELETE(
   const { id: workspaceId, keyId } = await params
 
   try {
-    const session = await getSession()
-    if (!session?.user?.id) {
-      logger.warn(`[${requestId}] Unauthorized workspace API key deletion attempt`)
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const hdrs = await headers()
+    const apiKeyHeader = hdrs.get('x-api-key') || hdrs.get('X-API-Key')
+    if (!apiKeyHeader) {
+      return NextResponse.json({ error: 'API key required' }, { status: 401 })
+    }
+    
+    const auth = await authenticateApiKeyFromHeader(apiKeyHeader, {
+      keyTypes: ['personal'],
+    })
+    if (!auth.success || !auth.userId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const userId = session.user.id
+    const userId = auth.userId
 
     const permission = await getUserEntityPermissions(userId, 'workspace', workspaceId)
     if (!permission || (permission !== 'admin' && permission !== 'write')) {
