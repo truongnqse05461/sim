@@ -227,7 +227,7 @@ export async function executeTool(
     const isInternalRoute = endpointUrl.startsWith('/api/')
 
     if (isInternalRoute || skipProxy) {
-      const result = await handleInternalRequest(toolId, tool, contextParams, executionContext)
+      const result = await handleInternalRequest(toolId, tool, contextParams)
 
       // Apply post-processing if available and not skipped
       let finalResult = result
@@ -414,8 +414,7 @@ function isErrorResponse(
 async function handleInternalRequest(
   toolId: string,
   tool: ToolConfig,
-  params: Record<string, any>,
-  executionContext?: ExecutionContext
+  params: Record<string, any>
 ): Promise<ToolResponse> {
   const requestId = generateRequestId()
 
@@ -429,9 +428,7 @@ async function handleInternalRequest(
       typeof tool.request.url === 'function' ? tool.request.url(params) : tool.request.url
 
     const fullUrlObj = new URL(endpointUrl, baseUrl)
-    if (executionContext?.workflowId && typeof window === 'undefined') {
-      fullUrlObj.searchParams.set('workflowId', executionContext.workflowId)
-    }
+    const isInternalRoute = endpointUrl.startsWith('/api/')
     const fullUrl = fullUrlObj.toString()
 
     // For custom tools, validate parameters on the client side before sending
@@ -451,7 +448,6 @@ async function handleInternalRequest(
     }
 
     const headers = new Headers(requestParams.headers)
-    const isInternalRoute = endpointUrl.startsWith('/api/')
     if (typeof window === 'undefined') {
       if (isInternalRoute) {
         try {
