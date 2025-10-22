@@ -3,9 +3,6 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { type NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { createLogger } from '@/lib/logs/console/logger'
-import { getEmbedClaimsFromRequest } from '@/lib/auth/embed-request'
-import { headers } from 'next/headers'
-import { authenticateApiKeyFromHeader } from '@/lib/api-key/service'
 
 const logger = createLogger('WorkspaceByIdAPI')
 
@@ -15,27 +12,10 @@ import { getUserEntityPermissions } from '@/lib/permissions/utils'
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  const session = await getSession()
 
-  const claims = await getEmbedClaimsFromRequest(request)
-  if (!claims) {
+  if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  if (claims.workspaceId !== id) {
-    return NextResponse.json({ error: 'Invalid workspace' }, { status: 401 })
-  }
-
-  const hdrs = await headers()
-  const apiKeyHeader = hdrs.get('x-api-key') || hdrs.get('X-API-Key')
-  if (!apiKeyHeader) {
-    return NextResponse.json({ error: 'API key required' }, { status: 401 })
-  }
-  const auth = await authenticateApiKeyFromHeader(apiKeyHeader, {
-    workspaceId: id,
-    keyTypes: ['workspace'],
-  })
-  if (!auth.success || !auth.userId || auth.workspaceId !== claims.workspaceId) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const workspaceId = id
@@ -43,7 +23,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const checkTemplates = url.searchParams.get('check-templates') === 'true'
 
   // Check if user has any access to this workspace
-  const userPermission = await getUserEntityPermissions(auth.userId, 'workspace', workspaceId)
+  const userPermission = await getUserEntityPermissions(session.user.id, 'workspace', workspaceId)
   if (!userPermission) {
     return NextResponse.json({ error: 'Workspace not found or access denied' }, { status: 404 })
   }

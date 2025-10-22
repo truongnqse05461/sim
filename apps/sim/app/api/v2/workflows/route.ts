@@ -7,9 +7,6 @@ import { getSession } from '@/lib/auth'
 import { createLogger } from '@/lib/logs/console/logger'
 import { generateRequestId } from '@/lib/utils'
 import { verifyWorkspaceMembership } from './utils'
-import { getEmbedClaimsFromRequest } from '@/lib/auth/embed-request'
-import { headers } from 'next/headers'
-import { authenticateApiKeyFromHeader } from '@/lib/api-key/service'
 
 const logger = createLogger('WorkflowAPI')
 
@@ -28,33 +25,14 @@ export async function GET(request: Request) {
   const url = new URL(request.url)
   const workspaceId = url.searchParams.get('workspaceId')
 
-  if (!workspaceId) {
-    return NextResponse.json({ error: 'Workspace ID is required' }, { status: 400 })
-  }
-
   try {
-    const claims = await getEmbedClaimsFromRequest(request)
-    if (!claims) {
+    const session = await getSession()
+    if (!session?.user?.id) {
+      logger.warn(`[${requestId}] Unauthorized workflow access attempt`)
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    if (claims.workspaceId !== workspaceId) {
-      return NextResponse.json({ error: 'Invalid workspace' }, { status: 401 })
-    }
-
-    const hdrs = await headers()
-    const apiKeyHeader = hdrs.get('x-api-key') || hdrs.get('X-API-Key')
-    if (!apiKeyHeader) {
-      return NextResponse.json({ error: 'API key required' }, { status: 401 })
-    }
-    const auth = await authenticateApiKeyFromHeader(apiKeyHeader, {
-      workspaceId: claims.workspaceId,
-      keyTypes: ['workspace'],
-    })
-    if (!auth.success || !auth.userId || auth.workspaceId !== workspaceId) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-    const userId = auth.userId
+    const userId = session.user.id
 
     if (workspaceId) {
       const workspaceExists = await db
@@ -105,38 +83,21 @@ export async function GET(request: Request) {
 // POST /api/workflows - Create a new workflow
 export async function POST(req: NextRequest) {
   const requestId = generateRequestId()
+  const session = await getSession()
 
-  const claims = await getEmbedClaimsFromRequest(req)
-  if (!claims) {
+  if (!session?.user?.id) {
+    logger.warn(`[${requestId}] Unauthorized workflow creation attempt`)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-  
-  const hdrs = await headers()
-  const apiKeyHeader = hdrs.get('x-api-key') || hdrs.get('X-API-Key')
-  if (!apiKeyHeader) {
-    return NextResponse.json({ error: 'API key required' }, { status: 401 })
   }
 
   try {
     const body = await req.json()
     const { name, description, color, workspaceId, folderId } = CreateWorkflowSchema.parse(body)
 
-    if (claims.workspaceId !== workspaceId) {
-      return NextResponse.json({ error: 'Invalid workspace' }, { status: 401 })
-    }
-
-    const auth = await authenticateApiKeyFromHeader(apiKeyHeader, {
-      workspaceId: claims.workspaceId,
-      keyTypes: ['workspace'],
-    })
-    if (!auth.success || !auth.userId || auth.workspaceId !== workspaceId) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-
     const workflowId = crypto.randomUUID()
     const now = new Date()
 
-    logger.info(`[${requestId}] Creating workflow ${workflowId} for user ${auth.userId}`)
+    logger.info(`[${requestId}] Creating workflow ${workflowId} for user ${session.user.id}`)
 
     // Track workflow creation
     try {
@@ -153,7 +114,7 @@ export async function POST(req: NextRequest) {
 
     await db.insert(workflow).values({
       id: workflowId,
-      userId: auth.userId,
+      userId: session.user.id,
       workspaceId: workspaceId || null,
       folderId: folderId || null,
       name,

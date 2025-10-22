@@ -2,18 +2,15 @@ import { db } from '@sim/db'
 import { templates, workflow } from '@sim/db/schema'
 import { eq } from 'drizzle-orm'
 import { type NextRequest, NextResponse } from 'next/server'
-import { headers } from 'next/headers'
 import { z } from 'zod'
 import { authenticateApiKeyFromHeader, updateApiKeyLastUsed } from '@/lib/api-key/service'
 import { getSession } from '@/lib/auth'
-import { authenticateV2WorkflowAccess } from '@/lib/auth/embed-request'
 import { verifyInternalToken } from '@/lib/auth/internal'
 import { env } from '@/lib/env'
 import { createLogger } from '@/lib/logs/console/logger'
 import { generateRequestId } from '@/lib/utils'
 import { loadWorkflowFromNormalizedTables } from '@/lib/workflows/db-helpers'
 import { getWorkflowAccessContext, getWorkflowById } from '@/lib/workflows/utils'
-import { getEmbedClaimsFromRequest } from '@/lib/auth/embed-request'
 
 const logger = createLogger('WorkflowByIdAPI')
 
@@ -70,16 +67,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       }
 
       if (!authenticatedUserId) {
-        // Allow embed session access for v2 workflows
-        const embedAuth = await authenticateV2WorkflowAccess(request, workflowId)
-        if (!embedAuth.allowed) {
-          logger.warn(
-            `[${requestId}] Unauthorized access attempt for workflow ${workflowId} (no session, no API key, embed=${embedAuth.reason})`
-          )
-          return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-        }
-        // For embed flows we don't set userId context; downstream access checks rely on workspace/workflow pairing
-        authenticatedUserId = null
+        logger.warn(`[${requestId}] Unauthorized access attempt for workflow ${workflowId}`)
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       }
 
       userId = authenticatedUserId
@@ -100,14 +89,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       // Internal calls have full access
       hasAccess = true
     } else {
-      // Case 1: Embed token grants access
-      const embedAuth = await authenticateV2WorkflowAccess(request, workflowId)
-      if (embedAuth.allowed) {
-        hasAccess = true
-      }
-
-      // Case 2: User/session or api-key based access
-      if (!hasAccess && workflowData) {
+      // Case 1: User owns the workflow
+      if (workflowData) {
         accessContext = await getWorkflowAccessContext(workflowId, userId ?? undefined)
 
         if (!accessContext) {
@@ -187,33 +170,13 @@ export async function DELETE(
   const { id: workflowId } = await params
 
   try {
-    const claims = await getEmbedClaimsFromRequest(request)
-    if (!claims) {
+    const session = await getSession()
+    if (!session?.user?.id) {
+      logger.warn(`[${requestId}] Unauthorized deletion attempt for workflow ${workflowId}`)
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const hdrs = await headers()
-    const apiKeyHeader = hdrs.get('x-api-key') || hdrs.get('X-API-Key')
-    if (!apiKeyHeader) {
-      return NextResponse.json({ error: 'API key required' }, { status: 401 })
-    }
-    const auth = await authenticateApiKeyFromHeader(apiKeyHeader, {
-      workspaceId: claims.workspaceId,
-      keyTypes: ['workspace'],
-    })
-    if (!auth.success || !auth.userId || auth.workspaceId !== claims.workspaceId) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-
-    const embedAuth = await authenticateV2WorkflowAccess(request, workflowId)
-    if (!embedAuth.allowed) {
-      logger.warn(
-        `[${requestId}] Unauthorized access attempt for workflow ${workflowId} (no session, no API key, embed=${embedAuth.reason})`
-      )
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const userId = auth.userId
+    const userId = session.user.id
 
     const accessContext = await getWorkflowAccessContext(workflowId, userId)
     const workflowData = accessContext?.workflow || (await getWorkflowById(workflowId))
@@ -339,34 +302,14 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   const { id: workflowId } = await params
 
   try {
-    const claims = await getEmbedClaimsFromRequest(request)
-    if (!claims) {
+    // Get the session
+    const session = await getSession()
+    if (!session?.user?.id) {
+      logger.warn(`[${requestId}] Unauthorized update attempt for workflow ${workflowId}`)
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const hdrs = await headers()
-    const apiKeyHeader = hdrs.get('x-api-key') || hdrs.get('X-API-Key')
-    if (!apiKeyHeader) {
-      return NextResponse.json({ error: 'API key required' }, { status: 401 })
-    }
-    const auth = await authenticateApiKeyFromHeader(apiKeyHeader, {
-      workspaceId: claims.workspaceId,
-      keyTypes: ['workspace'],
-    })
-    if (!auth.success || !auth.userId || auth.workspaceId !== claims.workspaceId) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-
-    const embedAuth = await authenticateV2WorkflowAccess(request, workflowId)
-    if (!embedAuth.allowed) {
-      logger.warn(
-        `[${requestId}] Unauthorized access attempt for workflow ${workflowId} (no session, no API key, embed=${embedAuth.reason})`
-      )
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-
-    const userId = auth.userId
+    const userId = session.user.id
 
     // Parse and validate request body
     const body = await request.json()

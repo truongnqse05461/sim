@@ -9,9 +9,6 @@ import { getSession } from '@/lib/auth'
 import { createLogger } from '@/lib/logs/console/logger'
 import { getUserEntityPermissions } from '@/lib/permissions/utils'
 import { generateRequestId } from '@/lib/utils'
-import { getEmbedClaimsFromRequest } from '@/lib/auth/embed-request'
-import { headers } from 'next/headers'
-import { authenticateApiKeyFromHeader } from '@/lib/api-key/service'
 
 const logger = createLogger('WorkspaceApiKeysAPI')
 
@@ -28,19 +25,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const workspaceId = (await params).id
 
   try {
-    const hdrs = await headers()
-    const apiKeyHeader = hdrs.get('x-api-key') || hdrs.get('X-API-Key')
-    if (!apiKeyHeader) {
-      return NextResponse.json({ error: 'API key required' }, { status: 401 })
-    }
-    const auth = await authenticateApiKeyFromHeader(apiKeyHeader, {
-      keyTypes: ['personal'],
-    })
-    if (!auth.success || !auth.userId) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const session = await getSession()
+    if (!session?.user?.id) {
+      logger.warn(`[${requestId}] Unauthorized workspace API keys access attempt`)
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const userId = auth.userId
+    const userId = session.user.id
 
     const ws = await db.select().from(workspace).where(eq(workspace.id, workspaceId)).limit(1)
     if (!ws.length) {
@@ -94,19 +85,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const workspaceId = (await params).id
 
   try {
-    const hdrs = await headers()
-    const apiKeyHeader = hdrs.get('x-api-key') || hdrs.get('X-API-Key')
-    if (!apiKeyHeader) {
-      return NextResponse.json({ error: 'API key required' }, { status: 401 })
-    }
-    const auth = await authenticateApiKeyFromHeader(apiKeyHeader, {
-      keyTypes: ['personal'],
-    })
-    if (!auth.success || !auth.userId) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const session = await getSession()
+    if (!session?.user?.id) {
+      logger.warn(`[${requestId}] Unauthorized workspace API key creation attempt`)
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const userId = auth.userId
+    const userId = session.user.id
 
     const permission = await getUserEntityPermissions(userId, 'workspace', workspaceId)
     if (!permission || (permission !== 'admin' && permission !== 'write')) {
@@ -187,19 +172,13 @@ export async function DELETE(
   const workspaceId = (await params).id
 
   try {
-    const hdrs = await headers()
-    const apiKeyHeader = hdrs.get('x-api-key') || hdrs.get('X-API-Key')
-    if (!apiKeyHeader) {
-      return NextResponse.json({ error: 'API key required' }, { status: 401 })
-    }
-    const auth = await authenticateApiKeyFromHeader(apiKeyHeader, {
-      keyTypes: ['personal'],
-    })
-    if (!auth.success || !auth.userId) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const session = await getSession()
+    if (!session?.user?.id) {
+      logger.warn(`[${requestId}] Unauthorized workspace API key deletion attempt`)
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const userId = auth.userId
+    const userId = session.user.id
 
     const permission = await getUserEntityPermissions(userId, 'workspace', workspaceId)
     if (!permission || (permission !== 'admin' && permission !== 'write')) {

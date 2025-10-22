@@ -1,32 +1,19 @@
 import { db } from '@sim/db'
-import { permissions, workflow, workspace, user } from '@sim/db/schema'
+import { permissions, workflow, workspace } from '@sim/db/schema'
 import { and, desc, eq, isNull } from 'drizzle-orm'
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { createLogger } from '@/lib/logs/console/logger'
-import { getEmbedClaimsFromRequest } from '@/lib/auth/embed-request'
-import { headers } from 'next/headers'
-import { env } from '@/lib/env'
-import { authenticateApiKeyFromHeader } from '@/lib/api-key/service'
 
 const logger = createLogger('Workspaces')
 
 // Get all workspaces for the current user
 export async function GET() {
-  const hdrs = await headers()
-  const apiKeyHeader = hdrs.get('x-api-key') || hdrs.get('X-API-Key')
-  if (!apiKeyHeader) {
-    return NextResponse.json({ error: 'API key required' }, { status: 401 })
-  }
+  const session = await getSession()
 
-  const auth = await authenticateApiKeyFromHeader(apiKeyHeader, {
-    keyTypes: ['personal'],
-  })
-  if (!auth.success || !auth.userId) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-
-  const userId = auth.userId
 
   // Get all workspaces where the user has permissions
   const userWorkspaces = await db
@@ -36,21 +23,21 @@ export async function GET() {
     })
     .from(permissions)
     .innerJoin(workspace, eq(permissions.entityId, workspace.id))
-    .where(and(eq(permissions.userId, userId), eq(permissions.entityType, 'workspace')))
+    .where(and(eq(permissions.userId, session.user.id), eq(permissions.entityType, 'workspace')))
     .orderBy(desc(workspace.createdAt))
 
   if (userWorkspaces.length === 0) {
     // Create a default workspace for the user
-    const defaultWorkspace = await createDefaultWorkspace(userId, null)
+    const defaultWorkspace = await createDefaultWorkspace(session.user.id, session.user.name)
 
     // Migrate existing workflows to the default workspace
-    await migrateExistingWorkflows(userId, defaultWorkspace.id)
+    await migrateExistingWorkflows(session.user.id, defaultWorkspace.id)
 
     return NextResponse.json({ workspaces: [defaultWorkspace] })
   }
 
   // If user has workspaces but might have orphaned workflows, migrate them
-  await ensureWorkflowsHaveWorkspace(userId, userWorkspaces[0].workspace.id)
+  await ensureWorkflowsHaveWorkspace(session.user.id, userWorkspaces[0].workspace.id)
 
   // Format the response with permission information
   const workspacesWithPermissions = userWorkspaces.map(
@@ -66,20 +53,11 @@ export async function GET() {
 
 // POST /api/workspaces - Create a new workspace
 export async function POST(req: Request) {
-  const hdrs = await headers()
-  const apiKeyHeader = hdrs.get('x-api-key') || hdrs.get('X-API-Key')
-  if (!apiKeyHeader) {
-    return NextResponse.json({ error: 'API key required' }, { status: 401 })
-  }
-  
-  const auth = await authenticateApiKeyFromHeader(apiKeyHeader, {
-    keyTypes: ['personal'],
-  })
-  if (!auth.success || !auth.userId) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
+  const session = await getSession()
 
-  const userId = auth.userId
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
   try {
     const { name } = await req.json()
@@ -88,7 +66,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 })
     }
 
-    const newWorkspace = await createWorkspace(userId, name)
+    const newWorkspace = await createWorkspace(session.user.id, name)
 
     return NextResponse.json({ workspace: newWorkspace })
   } catch (error) {
