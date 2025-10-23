@@ -187,13 +187,21 @@ export async function DELETE(
   const { id: workflowId } = await params
 
   try {
+    const claims = await getEmbedClaimsFromRequest(request)
+    if (!claims) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const hdrs = await headers()
     const apiKeyHeader = hdrs.get('x-api-key') || hdrs.get('X-API-Key')
     if (!apiKeyHeader) {
       return NextResponse.json({ error: 'API key required' }, { status: 401 })
     }
-    const auth = await authenticateApiKeyFromHeader(apiKeyHeader)
-    if (!auth.success || !auth.userId) {
+    const auth = await authenticateApiKeyFromHeader(apiKeyHeader, {
+      workspaceId: claims.workspaceId,
+      keyTypes: ['workspace'],
+    })
+    if (!auth.success || !auth.userId || auth.workspaceId !== claims.workspaceId) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -331,13 +339,21 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   const { id: workflowId } = await params
 
   try {
+    const claims = await getEmbedClaimsFromRequest(request)
+    if (!claims) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const hdrs = await headers()
     const apiKeyHeader = hdrs.get('x-api-key') || hdrs.get('X-API-Key')
     if (!apiKeyHeader) {
       return NextResponse.json({ error: 'API key required' }, { status: 401 })
     }
-    const auth = await authenticateApiKeyFromHeader(apiKeyHeader)
-    if (!auth.success || !auth.userId) {
+    const auth = await authenticateApiKeyFromHeader(apiKeyHeader, {
+      workspaceId: claims.workspaceId,
+      keyTypes: ['workspace'],
+    })
+    if (!auth.success || !auth.userId || auth.workspaceId !== claims.workspaceId) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
