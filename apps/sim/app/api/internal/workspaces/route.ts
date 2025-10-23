@@ -1,13 +1,12 @@
 import { db } from '@sim/db'
-import { permissions, workflow, workspace, user } from '@sim/db/schema'
+import { permissions, workflow, workspace, apiKey } from '@sim/db/schema'
 import { and, desc, eq, isNull } from 'drizzle-orm'
 import { NextResponse } from 'next/server'
-import { getSession } from '@/lib/auth'
 import { createLogger } from '@/lib/logs/console/logger'
-import { getEmbedClaimsFromRequest } from '@/lib/auth/embed-request'
 import { headers } from 'next/headers'
-import { env } from '@/lib/env'
 import { authenticateApiKeyFromHeader } from '@/lib/api-key/service'
+import { createApiKey } from '@/lib/api-key/auth'
+import { nanoid } from 'nanoid'
 
 const logger = createLogger('Workspaces')
 
@@ -82,13 +81,53 @@ export async function POST(req: Request) {
   const userId = auth.userId
 
   try {
-    const { name } = await req.json()
+    const { name, createAPIKeyIfNotExist } = await req.json()
 
     if (!name) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 })
     }
 
     const newWorkspace = await createWorkspace(userId, name)
+
+    // Create a default API key for the workspace
+    if (createAPIKeyIfNotExist) {
+      const { key: plainKey, encryptedKey } = await createApiKey(true)
+
+      if (!encryptedKey) {
+        throw new Error('Failed to encrypt API key for storage')
+      }
+
+      const workspaceId = newWorkspace.id
+      const apiKeyName = "workspace default API Key"
+
+      const [newKey] = await db
+        .insert(apiKey)
+        .values({
+          id: nanoid(),
+          workspaceId,
+          userId: userId,
+          createdBy: userId,
+          name: apiKeyName,
+          key: encryptedKey,
+          type: 'workspace',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .returning({
+          id: apiKey.id,
+          name: apiKey.name,
+          createdAt: apiKey.createdAt,
+        })
+
+      logger.info(`Created workspace API key: ${apiKeyName} in workspace ${workspaceId}`)
+
+      return NextResponse.json({ 
+        workspace: {
+          ...newWorkspace,
+          apiKey: plainKey,
+        } 
+      })
+    }
 
     return NextResponse.json({ workspace: newWorkspace })
   } catch (error) {
