@@ -170,33 +170,6 @@ async function createWorkspace(userId: string, name: string) {
         createdAt: now,
         updatedAt: now,
       })
-
-      // // Create initial workflow for the workspace (empty canvas)
-      // // Create the workflow
-      // await tx.insert(workflow).values({
-      //   id: workflowId,
-      //   userId,
-      //   workspaceId,
-      //   folderId: null,
-      //   name: 'default-agent',
-      //   description: 'Your first workflow - start building here!',
-      //   color: '#3972F6',
-      //   lastSynced: now,
-      //   createdAt: now,
-      //   updatedAt: now,
-      //   isDeployed: false,
-      //   collaborators: [],
-      //   runCount: 0,
-      //   variables: {},
-      //   isPublished: false,
-      //   marketplaceData: null,
-      // })
-
-      // // No blocks are inserted - empty canvas
-
-      // logger.info(
-      //   `Created workspace ${workspaceId} with initial workflow ${workflowId} for user ${userId}`
-      // )
     })
   } catch (error) {
     logger.error(`Failed to create workspace ${workspaceId} with initial workflow:`, error)
