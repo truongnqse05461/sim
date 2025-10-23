@@ -1,14 +1,16 @@
 import { db } from '@sim/db'
-import { workflow, workflowBlocks, workflowEdges, workflowSubflows } from '@sim/db/schema'
+import { user, workflow, workflowBlocks, workflowEdges, workflowSubflows } from '@sim/db/schema'
 import { eq } from 'drizzle-orm'
 import { type NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { getSession } from '@/lib/auth'
 import { createLogger } from '@/lib/logs/console/logger'
 import { getUserEntityPermissions } from '@/lib/permissions/utils'
 import { generateRequestId } from '@/lib/utils'
 import type { Variable } from '@/stores/panel/variables/types'
 import type { LoopConfig, ParallelConfig } from '@/stores/workflows/workflow/types'
+import { headers } from 'next/headers'
+import { getEmbedClaimsFromRequest, authenticateV2WorkflowAccess } from '@/lib/auth/embed-request'
+import { authenticateApiKeyFromHeader } from '@/lib/api-key/service'
 
 const logger = createLogger('WorkflowDuplicateAPI')
 
@@ -26,18 +28,43 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const requestId = generateRequestId()
   const startTime = Date.now()
 
-  const session = await getSession()
-  if (!session?.user?.id) {
-    logger.warn(`[${requestId}] Unauthorized workflow duplication attempt for ${sourceWorkflowId}`)
+  const embedAuth = await authenticateV2WorkflowAccess(req, sourceWorkflowId)
+  if (!embedAuth.allowed) {
+    logger.warn(
+      `[${requestId}] Unauthorized access attempt for workflow ${sourceWorkflowId} (no session, no API key, embed=${embedAuth.reason})`
+    )
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  const claims = embedAuth.embed
+
+  const hdrs = await headers()
+  const apiKeyHeader = hdrs.get('x-api-key') || hdrs.get('X-API-Key')
+  if (!apiKeyHeader) {
+    return NextResponse.json({ error: 'API key required' }, { status: 401 })
+  }
+  const auth = await authenticateApiKeyFromHeader(apiKeyHeader, {
+    workspaceId: claims.workspaceId,
+    keyTypes: ['workspace'],
+  })
+  if (!auth.success || !auth.userId || auth.workspaceId !== claims.workspaceId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  logger.error("auth", auth)
 
   try {
     const body = await req.json()
     const { name, description, color, workspaceId, folderId } = DuplicateRequestSchema.parse(body)
 
+    if (workspaceId !== claims.workspaceId) {
+      return NextResponse.json({ error: 'Invalid workspace' }, { status: 401 })
+    }
+
+    const userId = auth.userId
+
     logger.info(
-      `[${requestId}] Duplicating workflow ${sourceWorkflowId} for user ${session.user.id}`
+      `[${requestId}] Duplicating workflow ${sourceWorkflowId} for user ${userId}`
     )
 
     // Generate new workflow ID
@@ -63,14 +90,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       let canAccessSource = false
 
       // Case 1: User owns the workflow
-      if (source.userId === session.user.id) {
+      if (source.userId === user) {
         canAccessSource = true
       }
 
       // Case 2: User has admin or write permission in the source workspace
       if (!canAccessSource && source.workspaceId) {
         const userPermission = await getUserEntityPermissions(
-          session.user.id,
+          userId,
           'workspace',
           source.workspaceId
         )
@@ -86,7 +113,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // Create the new workflow first (required for foreign key constraints)
       await tx.insert(workflow).values({
         id: newWorkflowId,
-        userId: session.user.id,
+        userId: userId,
         workspaceId: workspaceId || source.workspaceId,
         folderId: folderId || source.folderId,
         name,
@@ -315,7 +342,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
       if (error.message === 'Source workflow not found or access denied') {
         logger.warn(
-          `[${requestId}] User ${session.user.id} denied access to source workflow ${sourceWorkflowId}`
+          `[${requestId}] User ${userId} denied access to source workflow ${sourceWorkflowId}`
         )
         return NextResponse.json({ error: 'Access denied' }, { status: 403 })
       }
