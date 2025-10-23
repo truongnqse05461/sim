@@ -1473,16 +1473,14 @@ export async function getSession() {
   const jar = await cookies()
   const token = jar.get(embedCookie.name)?.value
   if (!token) {
-    const err: any = new Error('Embed session invalid')
-    err.status = 401
-    throw err
+    logger.error('no embed token', { token })
+    return null
   }
   if (token) {
     const claims = await verifyEmbedToken(token)
     if (!claims) {
-      const err: any = new Error('Embed session invalid')
-      err.status = 401
-      throw err
+      logger.error('no embed claims', { claims })
+      return null
     }
     return { ...session, embed: claims }
   }

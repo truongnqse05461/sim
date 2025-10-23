@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     // Try sign up first
     let setCookieValue: string | null = null
     try {
-      const { headers: signupHeaders } = await (auth as any).api.signUpEmail({
+      const { headers: signupHeaders } = await auth.api.signUpEmail({
         returnHeaders: true,
         body: {
           email,
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
         email: env.SUPER_ADMIN_EMAIL,
         error: e?.message,
       })
-      const { headers: signinHeaders } = await (auth as any).api.signInEmail({
+      const { headers: signinHeaders } = await auth.api.signInEmail({
         returnHeaders: true,
         body: {
           email,
@@ -78,13 +78,13 @@ export async function POST(request: NextRequest) {
     }
 
     // generate embed token for iframe usage
-    const token = await signEmbedToken({ workspaceId, workflowId, ttlSeconds: 15 * 60 })
+    const token = await signEmbedToken({ workspaceId, workflowId, ttlSeconds: 24 * 60 * 60 })
     res.cookies.set(embedCookie.name, token, {
       httpOnly: true,
       // secure: true,
       sameSite: 'lax',
       path: '/',
-      maxAge: 15 * 60,
+      maxAge: 24 * 60 * 60,
     })
 
     return res
