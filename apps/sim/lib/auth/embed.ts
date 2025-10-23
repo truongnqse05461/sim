@@ -2,12 +2,13 @@ import type { JWTPayload } from 'jose'
 import { jwtVerify, SignJWT } from 'jose'
 import { env } from '@/lib/env'
 
-const EMBED_COOKIE_NAME = 'sim_embed'
+const EMBED_COOKIE_NAME = 'sim-embed'
 
 export interface EmbedClaims {
   type: 'embed'
   workspaceId: string
   workflowId?: string
+  userId?: string
   iat: number
   exp: number
   aud: 'sim-embed'
@@ -22,6 +23,7 @@ function getSecret(): Uint8Array {
 export async function signEmbedToken(params: {
   workspaceId: string
   workflowId?: string
+  userId?: string
   ttlSeconds?: number
 }): Promise<string> {
   const now = Math.floor(Date.now() / 1000)
@@ -30,6 +32,7 @@ export async function signEmbedToken(params: {
     type: 'embed',
     workspaceId: params.workspaceId,
     workflowId: params.workflowId,
+    userId: params.userId,
     iat: now,
     exp: now + ttl,
     aud: 'sim-embed',
