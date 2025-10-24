@@ -1,11 +1,14 @@
 import { db, workflowDeploymentVersion } from '@sim/db'
 import { and, desc, eq } from 'drizzle-orm'
-import type { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { verifyInternalToken } from '@/lib/auth/internal'
 import { createLogger } from '@/lib/logs/console/logger'
 import { generateRequestId } from '@/lib/utils'
 import { validateWorkflowPermissions } from '@/lib/workflows/utils'
 import { createErrorResponse, createSuccessResponse } from '@/app/api/workflows/utils'
+import { headers } from 'next/headers'
+import { authenticateV2WorkflowAccess } from '@/lib/auth/embed-request'
+import { authenticateApiKeyFromHeader } from '@/lib/api-key/service'
 
 const logger = createLogger('WorkflowDeployedStateAPI')
 
@@ -33,11 +36,29 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     }
 
     if (!isInternalCall) {
-      const { error } = await validateWorkflowPermissions(id, requestId, 'read')
-      if (error) {
-        const response = createErrorResponse(error.message, error.status)
-        return addNoCacheHeaders(response)
+    const embedAuth = await authenticateV2WorkflowAccess(request, id)
+      if (!embedAuth.allowed) {
+        logger.warn(
+          `[${requestId}] Unauthorized access attempt for workflow ${id} (no session, no API key, embed=${embedAuth.reason})`
+        )
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       }
+
+      const claims = embedAuth.embed
+
+      const hdrs = await headers()
+      const apiKeyHeader = hdrs.get('x-api-key') || hdrs.get('X-API-Key')
+      if (!apiKeyHeader) {
+        return NextResponse.json({ error: 'API key required' }, { status: 401 })
+      }
+      const auth = await authenticateApiKeyFromHeader(apiKeyHeader, {
+        workspaceId: claims.workspaceId,
+        keyTypes: ['workspace'],
+      })
+      if (!auth.success || !auth.userId || auth.workspaceId !== claims.workspaceId) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
+
     } else {
       logger.debug(`[${requestId}] Internal API call for deployed workflow: ${id}`)
     }
