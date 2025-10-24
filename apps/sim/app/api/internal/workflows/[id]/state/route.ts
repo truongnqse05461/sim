@@ -13,12 +13,12 @@ import { sanitizeAgentToolsInBlocks } from '@/lib/workflows/validation'
 
 const logger = createLogger('WorkflowStateAPI')
 
-const PositionSchema = z.object({
+export const PositionSchema = z.object({
   x: z.number(),
   y: z.number(),
 })
 
-const BlockDataSchema = z.object({
+export const BlockDataSchema = z.object({
   parentId: z.string().optional(),
   extent: z.literal('parent').optional(),
   width: z.number().optional(),
@@ -30,15 +30,15 @@ const BlockDataSchema = z.object({
   type: z.string().optional(),
 })
 
-const SubBlockStateSchema = z.object({
+export const SubBlockStateSchema = z.object({
   id: z.string(),
   type: z.string(),
   value: z.any(),
 })
 
-const BlockOutputSchema = z.any()
+export const BlockOutputSchema = z.any()
 
-const BlockStateSchema = z.object({
+export const BlockStateSchema = z.object({
   id: z.string(),
   type: z.string(),
   name: z.string(),
@@ -54,7 +54,7 @@ const BlockStateSchema = z.object({
   data: BlockDataSchema.optional(),
 })
 
-const EdgeSchema = z.object({
+export const EdgeSchema = z.object({
   id: z.string(),
   source: z.string(),
   target: z.string(),
@@ -74,7 +74,7 @@ const EdgeSchema = z.object({
   markerEnd: z.string().optional(),
 })
 
-const LoopSchema = z.object({
+export const LoopSchema = z.object({
   id: z.string(),
   nodes: z.array(z.string()),
   iterations: z.number(),
@@ -82,7 +82,7 @@ const LoopSchema = z.object({
   forEachItems: z.union([z.array(z.any()), z.record(z.any()), z.string()]).optional(),
 })
 
-const ParallelSchema = z.object({
+export const ParallelSchema = z.object({
   id: z.string(),
   nodes: z.array(z.string()),
   distribution: z.union([z.array(z.any()), z.record(z.any()), z.string()]).optional(),
@@ -90,7 +90,7 @@ const ParallelSchema = z.object({
   parallelType: z.enum(['count', 'collection']).optional(),
 })
 
-const WorkflowStateSchema = z.object({
+export const WorkflowStateSchema = z.object({
   blocks: z.record(BlockStateSchema),
   edges: z.array(EdgeSchema),
   loops: z.record(LoopSchema).optional(),
