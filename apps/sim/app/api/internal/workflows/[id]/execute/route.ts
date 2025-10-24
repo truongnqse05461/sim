@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { z } from 'zod'
 import { authenticateApiKeyFromHeader, updateApiKeyLastUsed } from '@/lib/api-key/service'
 import { getSession } from '@/lib/auth'
+import { authenticateV2WorkflowAccess } from '@/lib/auth/embed-request'
 import { checkServerSideUsageLimits } from '@/lib/billing'
 import { getHighestPrioritySubscription } from '@/lib/billing/core/subscription'
 import { env } from '@/lib/env'
@@ -664,7 +665,14 @@ export async function POST(
           void updateApiKeyLastUsed(auth.keyId).catch(() => {})
         }
       } else {
-        return createErrorResponse('Authentication required', 401)
+        // Allow embed session to execute deployed workflows
+        const embedAuth = await authenticateV2WorkflowAccess(request as NextRequest, workflowId)
+        if (!embedAuth.allowed) {
+          return createErrorResponse('Authentication required', 401)
+        }
+        // For embed, attribute execution to workflow owner
+        authenticatedUserId = validation.workflow.userId
+        triggerType = 'api'
       }
     }
 
