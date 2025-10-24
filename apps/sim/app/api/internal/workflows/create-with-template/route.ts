@@ -44,6 +44,10 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { name, description, color, workspaceId, folderId, template } = CreateWorkflowSchema.parse(body)
 
+    if (!template) {
+      return NextResponse.json({ error: 'Workflow template is required' }, { status: 400 })
+    }
+
     if (claims.workspaceId !== workspaceId) {
       return NextResponse.json({ error: 'Invalid workspace' }, { status: 401 })
     }
@@ -95,7 +99,7 @@ export async function POST(req: NextRequest) {
 
     logger.info(`[${requestId}] Successfully created empty workflow ${workflowId}`)
 
-    // import template for workflow
+    // import template for workflow 
     await addingTemplate(requestId, workflowId, auth.userId, template)
 
     return NextResponse.json({
